@@ -1,0 +1,8 @@
+{
+  "name": "Remix JUTU maIN ",
+  "description": "Sustainable shoes and clothing crafted with natural materials. Wildly comfortable, super natural.",
+  "requestFramePermissions": [],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
+}
