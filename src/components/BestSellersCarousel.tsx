@@ -267,13 +267,13 @@ export const BestSellersCarousel: React.FC<BestSellersCarouselProps> = ({
                   onSelectProduct(product, colorObj);
                 }
               }}
-              className="group product-card flex-none w-[72%] sm:w-[46%] md:w-[31%] lg:w-[23.8%] xl:w-[23.8%] bg-white rounded-[.666rem] overflow-hidden flex flex-col justify-between cursor-pointer active:scale-[0.99] transition-all duration-200 select-none relative shadow-[0_1px_3px_rgba(0,0,0,0.04)]"
+              className="group product-card flex-none w-[46%] sm:w-[46%] md:w-[31%] lg:w-[23.8%] xl:w-[23.8%] bg-white rounded-[.666rem] overflow-hidden flex flex-col justify-between cursor-pointer active:scale-[0.99] transition-all duration-200 select-none relative shadow-[0_1px_3px_rgba(0,0,0,0.04)]"
               style={{ borderRadius: '.666rem' }}
             >
               {/* Top Badge: Floating over top corners */}
-              <div className="absolute top-2.5 sm:top-3 left-2.5 sm:left-3 right-2.5 sm:right-3 z-10 flex items-center justify-between pointer-events-none">
+              <div className="absolute top-2 sm:top-3 left-2 sm:left-3 right-2 sm:right-3 z-10 flex items-center justify-between pointer-events-none">
                 {forcedBadge ? (
-                  <span className="bg-[#e7e3d9]/90 backdrop-blur-xs text-stone-800 text-[10px] sm:text-[10.5px] font-bold tracking-wider px-2.5 sm:px-3 py-0.5 sm:py-1 rounded-lg uppercase inline-block leading-none shadow-2xs">
+                  <span className="bg-[#e7e3d9]/90 backdrop-blur-xs text-stone-800 text-[9px] sm:text-[10.5px] font-bold tracking-wider px-2 sm:px-3 py-0.5 sm:py-1 rounded-md sm:rounded-lg uppercase inline-block leading-none shadow-2xs">
                     {forcedBadge}
                   </span>
                 ) : (
@@ -281,14 +281,14 @@ export const BestSellersCarousel: React.FC<BestSellersCarouselProps> = ({
                 )}
 
                 {(product.isOutOfStock || (product.stock !== undefined && product.stock <= 0)) && (
-                  <span className="bg-rose-600 text-white text-[9px] sm:text-[9.5px] font-bold tracking-wider px-2 sm:px-2.5 py-0.5 sm:py-1 rounded-lg uppercase leading-none shadow-2xs">
+                  <span className="bg-rose-600 text-white text-[8px] sm:text-[9.5px] font-bold tracking-wider px-1.5 sm:px-2.5 py-0.5 sm:py-1 rounded-md sm:rounded-lg uppercase leading-none shadow-2xs">
                     Out of Stock
                   </span>
                 )}
               </div>
 
-              {/* Main Product Image - Full bleed on top, left, and right with zero gap/margin/padding */}
-              <div className="w-full aspect-[4/3] sm:aspect-square flex items-center justify-center relative overflow-hidden bg-[#faf8f5]">
+              {/* Main Product Image - Full bleed on top, left, and right with uniform 1:1 aspect-square on both PC and mobile */}
+              <div className="w-full aspect-square flex items-center justify-center relative overflow-hidden bg-[#faf8f5]">
                 {colorObj.image ? (
                   <img
                     src={colorObj.image}
@@ -309,29 +309,29 @@ export const BestSellersCarousel: React.FC<BestSellersCarouselProps> = ({
               </div>
 
               {/* Product Typography & Info - only bottom space */}
-              <div className="flex flex-col text-left p-3.5 sm:p-4 mt-auto">
+              <div className="flex flex-col text-left p-2.5 sm:p-4 mt-auto">
                 <h3
-                  className="text-[13px] sm:text-[14px] md:text-[15px] font-bold tracking-[0.06em] text-stone-900 uppercase leading-snug truncate"
+                  className="text-[11.5px] sm:text-[14px] md:text-[15px] font-bold tracking-[0.06em] text-stone-900 uppercase leading-snug truncate"
                   title={product.name}
                 >
                   {product.name}
                 </h3>
 
-                <p className="text-[12px] sm:text-[13px] text-stone-600 font-normal leading-snug mt-1 truncate">
+                <p className="text-[10.5px] sm:text-[13px] text-stone-600 font-normal leading-snug mt-0.5 sm:mt-1 truncate">
                   {colorObj.name}
                 </p>
 
                 {/* Bottom Row: Color Swatch on Left and Price on Right */}
-                <div className="flex items-center justify-between mt-2.5 pt-0.5">
+                <div className="flex items-center justify-between mt-2 sm:mt-2.5 pt-0.5">
                   <div className="flex items-center">
                     <span
-                      className="w-4 h-4 sm:w-4.5 sm:h-4.5 rounded-full border border-stone-300 ring-1 ring-stone-800/80 ring-offset-1 inline-block shrink-0"
+                      className="w-3.5 h-3.5 sm:w-4.5 sm:h-4.5 rounded-full border border-stone-300 ring-1 ring-stone-800/80 ring-offset-1 inline-block shrink-0"
                       style={{ backgroundColor: colorObj.colorCode || '#333333' }}
                       title={colorObj.name}
                     />
                   </div>
                   <div className="flex items-baseline">
-                    <span className="text-[13px] sm:text-[14px] md:text-[15px] font-bold text-stone-900 leading-snug">
+                    <span className="text-[11.5px] sm:text-[14px] md:text-[15px] font-bold text-stone-900 leading-snug">
                       {formatTaka(product.price)}
                     </span>
                   </div>
