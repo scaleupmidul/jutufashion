@@ -1632,7 +1632,11 @@ export async function saveStoreSettings(settings: StoreSettings): Promise<{ succ
       throw new Error(err.error || `Failed to save store settings (HTTP ${res.status})`);
     }
 
-    localStorage.setItem(KEYS.SETTINGS, JSON.stringify(settings));
+    try {
+      localStorage.setItem(KEYS.SETTINGS, JSON.stringify(settings));
+    } catch (storageErr) {
+      console.warn('localStorage quota reached for settings cache; server copy safely persisted:', storageErr);
+    }
     triggerStoreSync();
     return { success: true };
   } catch (e: any) {
