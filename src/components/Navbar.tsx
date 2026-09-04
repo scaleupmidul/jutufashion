@@ -21,6 +21,11 @@ export const Navbar: React.FC<NavbarProps> = ({
 }) => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [settings, setSettings] = useState(() => getStoredSettings());
+  const [logoError, setLogoError] = useState(false);
+
+  useEffect(() => {
+    setLogoError(false);
+  }, [settings?.headerLogoUrl]);
 
   useEffect(() => {
     const handleSync = () => {
@@ -79,13 +84,14 @@ export const Navbar: React.FC<NavbarProps> = ({
               onClick={() => onNavigate('home')}
               className="group flex items-center justify-center focus:outline-none text-center lg:text-left cursor-pointer"
             >
-              {settings?.headerLogoUrl ? (
+              {settings?.headerLogoUrl && !logoError ? (
                 <>
                   {/* Desktop Logo */}
                   <img
                     src={settings.headerLogoUrl}
                     alt={settings.storeName || 'JUTU'}
                     style={{ maxHeight: `${desktopLogoHeight}px` }}
+                    onError={() => setLogoError(true)}
                     className="hidden lg:block object-contain group-hover:opacity-85 transition-opacity"
                   />
                   {/* Mobile & Tablet Logo */}
@@ -93,6 +99,7 @@ export const Navbar: React.FC<NavbarProps> = ({
                     src={settings.headerLogoUrl}
                     alt={settings.storeName || 'JUTU'}
                     style={{ maxHeight: `${mobileLogoHeight}px` }}
+                    onError={() => setLogoError(true)}
                     className="lg:hidden object-contain group-hover:opacity-85 transition-opacity"
                   />
                 </>
