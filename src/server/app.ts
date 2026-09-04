@@ -1,6 +1,8 @@
 import express, { Request, Response } from 'express';
 import crypto from 'crypto';
 import dotenv from 'dotenv';
+import fs from 'fs';
+import path from 'path';
 import mongoose from 'mongoose';
 import { connectToDatabase, isDbConnected, getDbConnectionDiagnostics } from './db';
 import { OrderModel, ProductModel, MessageModel, StoreSettingsModel } from './models';
@@ -62,6 +64,26 @@ app.use((req, res, next) => {
   }
   next();
 });
+
+// Serve static uploaded assets directly from /uploads (with serverless /tmp fallback)
+const uploadsDir = path.join(process.cwd(), 'public', 'uploads');
+try {
+  if (!fs.existsSync(uploadsDir)) {
+    fs.mkdirSync(uploadsDir, { recursive: true });
+  }
+} catch (e) {
+  console.warn('[Uploads] Could not create public/uploads folder:', e);
+}
+app.use('/uploads', express.static(uploadsDir));
+
+const tmpUploadsDir = path.join('/tmp', 'uploads');
+try {
+  if (!fs.existsSync(tmpUploadsDir)) {
+    fs.mkdirSync(tmpUploadsDir, { recursive: true });
+  }
+} catch (_) {}
+app.use('/uploads', express.static(tmpUploadsDir));
+
 
 // ----------------------------------------------------
 // Helper Utilities & Meta Hashing
@@ -1071,6 +1093,92 @@ router.post('/settings/:key', async (req: Request, res: Response) => {
     return res.status(500).json({ error: err.message });
   }
 });
+
+// ----------------------------------------------------
+// 6.5. Image & Asset Upload Endpoint
+// ----------------------------------------------------
+const handleAssetUpload = async (req: Request, res: Response) => {
+  try {
+    const { data, image, filename, type } = req.body;
+    const rawData = data || image;
+    if (!rawData || typeof rawData !== 'string') {
+      return res.status(400).json({ success: false, error: 'Image data is required (base64 or Data URL)' });
+    }
+
+    let mime = type || 'image/png';
+    let base64String = rawData;
+
+    const dataUrlMatch = rawData.match(/^data:([^;]+);base64,(.+)$/);
+    if (dataUrlMatch) {
+      mime = dataUrlMatch[1];
+      base64String = dataUrlMatch[2];
+    }
+
+    let ext = 'png';
+    if (mime.includes('svg')) ext = 'svg';
+    else if (mime.includes('jpeg') || mime.includes('jpg')) ext = 'jpg';
+    else if (mime.includes('webp')) ext = 'webp';
+    else if (mime.includes('gif')) ext = 'gif';
+
+    const safeBaseName = (filename || 'logo')
+      .replace(/\.[^/.]+$/, '')
+      .replace(/[^a-zA-Z0-9_-]/g, '_')
+      .substring(0, 30);
+    const uniqueFilename = `${safeBaseName}_${Date.now()}.${ext}`;
+
+    const buffer = Buffer.from(base64String, 'base64');
+    let written = false;
+
+    // Try public/uploads first
+    try {
+      if (!fs.existsSync(uploadsDir)) {
+        fs.mkdirSync(uploadsDir, { recursive: true });
+      }
+      fs.writeFileSync(path.join(uploadsDir, uniqueFilename), buffer);
+      written = true;
+    } catch (writeErr) {
+      console.warn('[Upload] Could not write to public/uploads, trying /tmp/uploads:', writeErr);
+      try {
+        if (!fs.existsSync(tmpUploadsDir)) {
+          fs.mkdirSync(tmpUploadsDir, { recursive: true });
+        }
+        fs.writeFileSync(path.join(tmpUploadsDir, uniqueFilename), buffer);
+        written = true;
+      } catch (tmpErr) {
+        console.error('[Upload] Could not write to /tmp/uploads:', tmpErr);
+      }
+    }
+
+    if (written) {
+      const publicUrl = `/uploads/${uniqueFilename}`;
+      return res.json({
+        success: true,
+        url: publicUrl,
+        filename: uniqueFilename,
+        size: buffer.length,
+        mime,
+      });
+    }
+
+    // Disk write fallback: return valid data URL
+    const cleanUrl = rawData.startsWith('data:') ? rawData : `data:${mime};base64,${base64String}`;
+    return res.json({
+      success: true,
+      url: cleanUrl,
+      filename: uniqueFilename,
+      size: buffer.length,
+      mime,
+      fallback: 'data_url',
+    });
+  } catch (err: any) {
+    console.error('[Upload API Error]:', err);
+    return res.status(500).json({ success: false, error: err.message || 'Upload failed' });
+  }
+};
+
+router.post('/upload', handleAssetUpload);
+router.post('/upload/image', handleAssetUpload);
+
 
 
 // ----------------------------------------------------
