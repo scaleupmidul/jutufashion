@@ -1,5 +1,6 @@
 import React, { useRef, useState } from 'react';
-import { Upload, Link as LinkIcon, Image as ImageIcon, Check, X, RefreshCw } from 'lucide-react';
+import { Upload, Link as LinkIcon, Image as ImageIcon, Check, X, RefreshCw, Loader2 } from 'lucide-react';
+import { uploadImageToServer } from '../../utils/imageUpload';
 
 interface AdminImageUploadFieldProps {
   label?: string;
@@ -31,6 +32,7 @@ export const AdminImageUploadField: React.FC<AdminImageUploadFieldProps> = ({
   const [isDragging, setIsDragging] = useState(false);
   const [inputMode, setInputMode] = useState<'url' | 'presets'>('url');
   const [imgError, setImgError] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     const files = e.target.files;
@@ -39,19 +41,37 @@ export const AdminImageUploadField: React.FC<AdminImageUploadFieldProps> = ({
     }
   };
 
-  const processFile = (file: File) => {
+  const processFile = async (file: File) => {
     if (!file.type.startsWith('image/')) {
       alert('Please select a valid image file (PNG, JPG, WEBP, SVG, etc.)');
       return;
     }
-    const reader = new FileReader();
-    reader.onload = (event) => {
-      if (event.target?.result) {
-        onChange(event.target.result as string);
+    setIsUploading(true);
+    try {
+      const res = await uploadImageToServer(file, {
+        maxWidth: 1200,
+        maxHeight: 1200,
+        quality: 0.88,
+      });
+      if (res.success && res.url) {
+        onChange(res.url);
         setImgError(false);
+      } else {
+        throw new Error(res.error || 'Failed to upload');
       }
-    };
-    reader.readAsDataURL(file);
+    } catch (err) {
+      console.warn('Fallback to local data URL on upload failure', err);
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        if (event.target?.result) {
+          onChange(event.target.result as string);
+          setImgError(false);
+        }
+      };
+      reader.readAsDataURL(file);
+    } finally {
+      setIsUploading(false);
+    }
   };
 
   const handleDragOver = (e: React.DragEvent) => {
@@ -141,7 +161,12 @@ export const AdminImageUploadField: React.FC<AdminImageUploadFieldProps> = ({
                 : 'border-dashed border-stone-300 hover:border-stone-500'
             }`}
           >
-            {value && !imgError ? (
+            {isUploading ? (
+              <div className="flex flex-col items-center justify-center p-3 text-stone-700">
+                <Loader2 className="w-6 h-6 animate-spin mb-1 text-stone-900" />
+                <span className="text-[10px] font-bold text-stone-900 uppercase">Uploading...</span>
+              </div>
+            ) : value && !imgError ? (
               <>
                 <img
                   src={value}
