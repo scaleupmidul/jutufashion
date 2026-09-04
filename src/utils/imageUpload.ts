@@ -7,6 +7,7 @@ export interface OptimizeOptions {
   maxHeight?: number;
   quality?: number;
   format?: 'image/png' | 'image/webp' | 'image/jpeg';
+  preferDataUrl?: boolean;
 }
 
 /**
@@ -90,6 +91,26 @@ export async function uploadImageToServer(
   try {
     // 1. First optimize client-side to save network bandwidth and avoid huge payloads
     const optimizedDataUrl = await optimizeImageFile(file, options);
+
+    // If preferDataUrl is requested (standard for small UI assets like logos to guarantee zero-404 and avoid iframe 302 proxy drops), return immediately
+    if (options.preferDataUrl) {
+      // Background mirror to server for archival without blocking
+      fetch('/api/upload', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          data: optimizedDataUrl,
+          filename: file.name,
+          type: file.type || 'image/png',
+        }),
+      }).catch(() => {});
+
+      return {
+        success: true,
+        url: optimizedDataUrl,
+        size: Math.round(optimizedDataUrl.length * 0.75),
+      };
+    }
 
     // 2. Post to server upload endpoint
     try {
