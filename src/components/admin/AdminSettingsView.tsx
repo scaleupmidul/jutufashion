@@ -38,7 +38,8 @@ import {
   MapPin,
   Zap,
   X,
-  Loader2
+  Loader2,
+  AlertTriangle
 } from 'lucide-react';
 import { uploadImageToServer } from '../../utils/imageUpload';
 import { 
@@ -95,6 +96,11 @@ export const AdminSettingsView: React.FC<AdminSettingsViewProps> = ({
   const [isSavingLogo, setIsSavingLogo] = useState(false);
   const [logoNotice, setLogoNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
   const [isDraggingLogo, setIsDraggingLogo] = useState(false);
+  const [logoImageError, setLogoImageError] = useState(false);
+
+  useEffect(() => {
+    setLogoImageError(false);
+  }, [formSettings.headerLogoUrl]);
 
   const processLogoFile = async (file: File) => {
     if (!file) return;
@@ -109,6 +115,7 @@ export const AdminSettingsView: React.FC<AdminSettingsViewProps> = ({
 
     setIsUploadingLogo(true);
     setLogoNotice(null);
+    setLogoImageError(false);
 
     try {
       const uploadRes = await uploadImageToServer(file, {
@@ -116,6 +123,7 @@ export const AdminSettingsView: React.FC<AdminSettingsViewProps> = ({
         maxHeight: 450,
         quality: 0.95,
         format: 'image/png',
+        preferDataUrl: true,
       });
 
       if (!uploadRes.success || !uploadRes.url) {
@@ -634,7 +642,10 @@ export const AdminSettingsView: React.FC<AdminSettingsViewProps> = ({
                         <input
                           type="text"
                           value={formSettings.headerLogoUrl}
-                          onChange={(e) => updateSetting('headerLogoUrl', e.target.value)}
+                          onChange={(e) => {
+                            updateSetting('headerLogoUrl', e.target.value);
+                            setLogoImageError(false);
+                          }}
                           placeholder="https://... or direct image url"
                           className="w-full bg-stone-50 border border-stone-300 text-stone-900 text-xs font-mono rounded-xl pl-9 pr-24 py-2.5 focus:outline-none focus:border-stone-800 transition-colors"
                         />
@@ -647,6 +658,22 @@ export const AdminSettingsView: React.FC<AdminSettingsViewProps> = ({
                           {isSavingLogo ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
                           <span>Apply</span>
                         </button>
+                      </div>
+
+                      {/* Quick Presets / Actions */}
+                      <div className="flex flex-wrap items-center justify-between gap-1.5 pt-0.5 text-[10px]">
+                        <div className="flex items-center space-x-1 text-stone-500 font-medium">
+                          <span>Tip: Enter any HTTPS image link or use Upload File for local logos.</span>
+                        </div>
+                        {formSettings.headerLogoUrl && (
+                          <button
+                            type="button"
+                            onClick={handleRemoveLogo}
+                            className="text-stone-600 hover:text-stone-900 underline font-semibold cursor-pointer"
+                          >
+                            Clear to text logo
+                          </button>
+                        )}
                       </div>
                     </div>
                   ) : (
@@ -720,12 +747,43 @@ export const AdminSettingsView: React.FC<AdminSettingsViewProps> = ({
 
                     {/* Visual Asset Canvas Display */}
                     <div className="p-5 bg-white border border-stone-200 rounded-xl flex items-center justify-center min-h-[95px] relative overflow-hidden shadow-2xs">
-                      {formSettings.headerLogoUrl ? (
+                      {formSettings.headerLogoUrl && !logoImageError ? (
                         <img
                           src={formSettings.headerLogoUrl}
                           alt="Header Logo Asset"
+                          onError={() => setLogoImageError(true)}
                           className="max-h-[75px] max-w-full object-contain filter contrast-125"
                         />
+                      ) : formSettings.headerLogoUrl && logoImageError ? (
+                        <div className="flex flex-col items-center justify-center text-center p-2 text-stone-700">
+                          <AlertTriangle className="w-5 h-5 text-amber-600 mb-1" />
+                          <p className="text-xs font-bold text-stone-900 uppercase tracking-wider">
+                            Image Could Not Be Loaded
+                          </p>
+                          <p className="text-[10px] text-stone-500 max-w-sm mt-0.5">
+                            The provided URL is unreachable or broken in this browser. Please check the URL or use "Upload File".
+                          </p>
+                          <div className="flex items-center space-x-2 mt-2">
+                            <button
+                              type="button"
+                              onClick={handleRemoveLogo}
+                              className="text-[10px] font-bold uppercase text-stone-700 hover:text-stone-950 bg-stone-100 hover:bg-stone-200 px-2.5 py-1 rounded-lg transition-colors cursor-pointer"
+                            >
+                              Reset to Text Brand
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setLogoInputMode('upload');
+                                logoFileInputRef.current?.click();
+                              }}
+                              className="text-[10px] font-bold uppercase text-white bg-stone-900 hover:bg-black px-2.5 py-1 rounded-lg transition-colors cursor-pointer flex items-center space-x-1"
+                            >
+                              <Upload className="w-3 h-3" />
+                              <span>Upload File</span>
+                            </button>
+                          </div>
+                        </div>
                       ) : (
                         <span className="font-sans font-black text-2xl tracking-[0.2em] text-stone-900 uppercase">
                           {formSettings.storeName || 'JUTU'}
@@ -863,10 +921,11 @@ export const AdminSettingsView: React.FC<AdminSettingsViewProps> = ({
                         <span>PC / LAPTOP VIEW</span>
                       </div>
                       <div className="bg-white rounded-xl border border-stone-200 p-4 flex items-center justify-between shadow-2xs">
-                        {formSettings.headerLogoUrl ? (
+                        {formSettings.headerLogoUrl && !logoImageError ? (
                           <img
                             src={formSettings.headerLogoUrl}
                             alt="Logo preview"
+                            onError={() => setLogoImageError(true)}
                             style={{ height: `${formSettings.desktopLogoHeight * 0.75}px` }}
                             className="object-contain"
                           />
@@ -890,10 +949,11 @@ export const AdminSettingsView: React.FC<AdminSettingsViewProps> = ({
                         <span>PHONE / MOBILE VIEW</span>
                       </div>
                       <div className="bg-white rounded-xl border border-stone-200 p-4 flex items-center justify-center shadow-2xs">
-                        {formSettings.headerLogoUrl ? (
+                        {formSettings.headerLogoUrl && !logoImageError ? (
                           <img
                             src={formSettings.headerLogoUrl}
                             alt="Logo preview mobile"
+                            onError={() => setLogoImageError(true)}
                             style={{ height: `${formSettings.mobileLogoHeight * 0.9}px` }}
                             className="object-contain"
                           />
