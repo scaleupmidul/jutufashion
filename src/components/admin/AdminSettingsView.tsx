@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   Settings as SettingsIcon, 
   Image as ImageIcon, 
@@ -40,6 +40,7 @@ import {
   X,
   Loader2
 } from 'lucide-react';
+import { uploadImageToServer } from '../../utils/imageUpload';
 import { 
   StoreSettings, 
   AdminSettingsSubTab, 
@@ -87,8 +88,127 @@ export const AdminSettingsView: React.FC<AdminSettingsViewProps> = ({
   const [confirmSecurityText, setConfirmSecurityText] = useState('');
   const [securityNotice, setSecurityNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
-  // Logo upload mode: 'url' or 'upload'
+  // Logo input mode: 'url' (default) or 'upload'
   const [logoInputMode, setLogoInputMode] = useState<'url' | 'upload'>('url');
+  const logoFileInputRef = useRef<HTMLInputElement>(null);
+  const [isUploadingLogo, setIsUploadingLogo] = useState(false);
+  const [isSavingLogo, setIsSavingLogo] = useState(false);
+  const [logoNotice, setLogoNotice] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
+  const [isDraggingLogo, setIsDraggingLogo] = useState(false);
+
+  const processLogoFile = async (file: File) => {
+    if (!file) return;
+
+    if (!file.type.startsWith('image/') && !file.name.toLowerCase().endsWith('.svg')) {
+      setLogoNotice({
+        type: 'error',
+        text: 'Please select an image file (PNG, SVG, WebP, JPG).',
+      });
+      return;
+    }
+
+    setIsUploadingLogo(true);
+    setLogoNotice(null);
+
+    try {
+      const uploadRes = await uploadImageToServer(file, {
+        maxWidth: 900,
+        maxHeight: 450,
+        quality: 0.95,
+        format: 'image/png',
+      });
+
+      if (!uploadRes.success || !uploadRes.url) {
+        throw new Error(uploadRes.error || 'Failed to process logo image.');
+      }
+
+      const newLogoUrl = uploadRes.url;
+      updateSetting('headerLogoUrl', newLogoUrl);
+
+      // Auto-save to database so the logo updates everywhere instantly
+      setIsSavingLogo(true);
+      const updated = { ...formSettings, headerLogoUrl: newLogoUrl };
+      const saveRes = await onSaveSettings(updated);
+      setIsSavingLogo(false);
+
+      if (saveRes && saveRes.success === false) {
+        setLogoNotice({
+          type: 'success',
+          text: 'Logo uploaded. Click "SAVE SETTINGS" above to finalize.',
+        });
+      } else {
+        setLogoNotice({
+          type: 'success',
+          text: 'Logo uploaded & saved to store successfully!',
+        });
+      }
+
+      setTimeout(() => {
+        setLogoNotice(null);
+      }, 5000);
+    } catch (err: any) {
+      console.error('Logo upload error:', err);
+      setLogoNotice({
+        type: 'error',
+        text: err.message || 'Error processing logo upload. Please try another image.',
+      });
+    } finally {
+      setIsUploadingLogo(false);
+      if (logoFileInputRef.current) {
+        logoFileInputRef.current.value = '';
+      }
+    }
+  };
+
+  const handleLogoFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      processLogoFile(file);
+    }
+  };
+
+  const handleLogoDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    setIsDraggingLogo(false);
+    const file = e.dataTransfer.files?.[0];
+    if (file) {
+      processLogoFile(file);
+    }
+  };
+
+  const handleRemoveLogo = async () => {
+    updateSetting('headerLogoUrl', '');
+    setIsSavingLogo(true);
+    await onSaveSettings({ ...formSettings, headerLogoUrl: '' });
+    setIsSavingLogo(false);
+    setLogoNotice({
+      type: 'success',
+      text: 'Logo removed. Brand text will be displayed in the header.',
+    });
+    setTimeout(() => setLogoNotice(null), 4000);
+  };
+
+  const handleDirectSaveLogo = async () => {
+    setIsSavingLogo(true);
+    setLogoNotice(null);
+    try {
+      const res = await onSaveSettings(formSettings);
+      if (res && res.success === false) {
+        throw new Error(res.error || 'Failed to save settings');
+      }
+      setLogoNotice({ type: 'success', text: 'Logo settings saved to store successfully!' });
+      setIsSaved(true);
+      setHasUnsavedChanges(false);
+      setTimeout(() => {
+        setIsSaved(false);
+        setLogoNotice(null);
+      }, 4000);
+    } catch (err: any) {
+      setLogoNotice({ type: 'error', text: err.message || 'Failed to save logo' });
+    } finally {
+      setIsSavingLogo(false);
+    }
+  };
 
   // Category modal
   const [newCatName, setNewCatName] = useState('');
@@ -168,19 +288,6 @@ export const AdminSettingsView: React.FC<AdminSettingsViewProps> = ({
       setSaveError(err.message || 'Database error: Could not commit changes');
     } finally {
       setIsSaving(false);
-    }
-  };
-
-  const handleLogoFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        if (typeof reader.result === 'string') {
-          updateSetting('headerLogoUrl', reader.result);
-        }
-      };
-      reader.readAsDataURL(file);
     }
   };
 
@@ -452,23 +559,14 @@ export const AdminSettingsView: React.FC<AdminSettingsViewProps> = ({
                 </div>
 
                 {/* Header Logo Image Asset Box */}
-                <div className="space-y-2.5">
+                <div className="space-y-3">
                   <div className="flex items-center justify-between">
                     <label className="text-[10px] font-extrabold uppercase tracking-wider text-stone-700">
                       HEADER LOGO IMAGE ASSET
                     </label>
 
-                    {/* UPLOAD / URL Toggle Buttons */}
+                    {/* URL / UPLOAD Toggle Buttons */}
                     <div className="flex items-center bg-stone-100 p-0.5 rounded-lg border border-stone-200 text-[10px] font-bold uppercase">
-                      <button
-                        type="button"
-                        onClick={() => setLogoInputMode('upload')}
-                        className={`px-2.5 py-1 rounded-md transition-colors cursor-pointer ${
-                          logoInputMode === 'upload' ? 'bg-white text-stone-950 shadow-xs' : 'text-stone-600 hover:text-stone-950'
-                        }`}
-                      >
-                        UPLOAD
-                      </button>
                       <button
                         type="button"
                         onClick={() => setLogoInputMode('url')}
@@ -476,57 +574,213 @@ export const AdminSettingsView: React.FC<AdminSettingsViewProps> = ({
                           logoInputMode === 'url' ? 'bg-white text-stone-950 shadow-xs' : 'text-stone-600 hover:text-stone-950'
                         }`}
                       >
-                        URL
+                        IMAGE URL
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setLogoInputMode('upload')}
+                        className={`px-2.5 py-1 rounded-md transition-colors cursor-pointer ${
+                          logoInputMode === 'upload' ? 'bg-white text-stone-950 shadow-xs' : 'text-stone-600 hover:text-stone-950'
+                        }`}
+                      >
+                        UPLOAD FILE
                       </button>
                     </div>
                   </div>
 
-                  {/* Image Input Control */}
-                  {logoInputMode === 'url' ? (
-                    <div className="relative">
-                      <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-stone-400">
-                        <LinkIcon className="w-3.5 h-3.5" />
+                  {/* Logo Notification Toast / Banner */}
+                  {logoNotice && (
+                    <div
+                      className={`p-3 rounded-xl border text-xs font-semibold flex items-center justify-between transition-all ${
+                        logoNotice.type === 'success'
+                          ? 'bg-emerald-50 border-emerald-200 text-emerald-800'
+                          : 'bg-rose-50 border-rose-200 text-rose-800'
+                      }`}
+                    >
+                      <div className="flex items-center space-x-2">
+                        {logoNotice.type === 'success' ? (
+                          <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                        ) : (
+                          <AlertCircle className="w-4 h-4 text-rose-600 shrink-0" />
+                        )}
+                        <span>{logoNotice.text}</span>
                       </div>
-                      <input
-                        type="text"
-                        value={formSettings.headerLogoUrl}
-                        onChange={(e) => updateSetting('headerLogoUrl', e.target.value)}
-                        placeholder="https://res.cloudinary.com/... or direct image url"
-                        className="w-full bg-stone-50 border border-stone-300 text-stone-900 text-xs font-mono rounded-xl pl-9 pr-3 py-2.5 focus:outline-none focus:border-stone-800 transition-colors"
-                      />
-                    </div>
-                  ) : (
-                    <div className="flex items-center space-x-3">
-                      <label className="flex-1 bg-stone-50 border-2 border-dashed border-stone-300 hover:border-stone-500 rounded-xl p-3 text-center cursor-pointer transition-colors flex items-center justify-center space-x-2 text-stone-700">
-                        <Upload className="w-4 h-4 text-stone-500" />
-                        <span className="text-xs font-bold uppercase">Choose Logo File (PNG / SVG / WebP)</span>
-                        <input
-                          type="file"
-                          accept="image/*"
-                          onChange={handleLogoFileUpload}
-                          className="hidden"
-                        />
-                      </label>
+                      <button
+                        type="button"
+                        onClick={() => setLogoNotice(null)}
+                        className="text-stone-400 hover:text-stone-700 ml-2 cursor-pointer"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
                     </div>
                   )}
 
-                  {/* Image Asset Preview Box */}
-                  <div className="p-4 bg-stone-50/70 border border-stone-200 rounded-xl flex items-center justify-center min-h-[90px]">
-                    {formSettings.headerLogoUrl ? (
-                      <img
-                        src={formSettings.headerLogoUrl}
-                        alt="Header Logo Asset"
-                        className="max-h-[65px] max-w-full object-contain filter contrast-125"
-                      />
-                    ) : (
-                      <span className="font-sans font-black text-2xl tracking-[0.2em] text-stone-900 uppercase">
-                        {formSettings.storeName || 'JUTU'}
-                      </span>
+                  {/* Hidden File Input for Direct Triggering */}
+                  <input
+                    ref={logoFileInputRef}
+                    type="file"
+                    accept="image/png,image/jpeg,image/webp,image/svg+xml,image/*"
+                    onChange={handleLogoFileChange}
+                    className="hidden"
+                  />
+
+                  {/* Image Input Controls */}
+                  {logoInputMode === 'url' ? (
+                    <div className="space-y-2">
+                      <div className="relative">
+                        <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-stone-400">
+                          <LinkIcon className="w-3.5 h-3.5" />
+                        </div>
+                        <input
+                          type="text"
+                          value={formSettings.headerLogoUrl}
+                          onChange={(e) => updateSetting('headerLogoUrl', e.target.value)}
+                          placeholder="https://... or direct image url"
+                          className="w-full bg-stone-50 border border-stone-300 text-stone-900 text-xs font-mono rounded-xl pl-9 pr-24 py-2.5 focus:outline-none focus:border-stone-800 transition-colors"
+                        />
+                        <button
+                          type="button"
+                          onClick={handleDirectSaveLogo}
+                          disabled={isSavingLogo}
+                          className="absolute right-1.5 top-1.5 bottom-1.5 px-3 bg-stone-900 hover:bg-black text-white text-[10px] font-bold uppercase rounded-lg transition-colors cursor-pointer flex items-center space-x-1"
+                        >
+                          {isSavingLogo ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
+                          <span>Apply</span>
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div
+                      onDragOver={(e) => {
+                        e.preventDefault();
+                        setIsDraggingLogo(true);
+                      }}
+                      onDragLeave={() => setIsDraggingLogo(false)}
+                      onDrop={handleLogoDrop}
+                      onClick={() => !isUploadingLogo && logoFileInputRef.current?.click()}
+                      className={`relative border-2 border-dashed rounded-2xl p-6 text-center cursor-pointer transition-all duration-200 flex flex-col items-center justify-center space-y-2.5 ${
+                        isDraggingLogo
+                          ? 'border-stone-900 bg-stone-100 scale-[1.01]'
+                          : isUploadingLogo
+                          ? 'border-stone-400 bg-stone-50 pointer-events-none'
+                          : 'border-stone-300 bg-stone-50/70 hover:border-stone-500 hover:bg-stone-50'
+                      }`}
+                    >
+                      {isUploadingLogo ? (
+                        <div className="flex flex-col items-center justify-center space-y-2 py-3">
+                          <Loader2 className="w-7 h-7 text-stone-900 animate-spin" />
+                          <p className="text-xs font-bold text-stone-900 uppercase tracking-wider">
+                            Uploading & Saving Logo...
+                          </p>
+                          <p className="text-[10px] text-stone-500">Optimizing image for retina displays</p>
+                        </div>
+                      ) : (
+                        <>
+                          <div className="p-3 bg-white rounded-full border border-stone-200 shadow-2xs text-stone-700">
+                            <Upload className="w-5 h-5" />
+                          </div>
+                          <div>
+                            <p className="text-xs font-bold uppercase tracking-wider text-stone-900">
+                              Click to choose or Drag & Drop Logo
+                            </p>
+                            <p className="text-[11px] text-stone-500 mt-0.5">
+                              Supports PNG (transparent recommended), SVG, WebP, JPG
+                            </p>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              logoFileInputRef.current?.click();
+                            }}
+                            className="bg-stone-950 hover:bg-black text-white text-[11px] font-bold px-4 py-1.5 rounded-xl uppercase tracking-wider shadow-2xs transition-colors cursor-pointer"
+                          >
+                            Browse Image File
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Image Asset Preview & Management Box */}
+                  <div className="bg-stone-50/80 border border-stone-200/90 rounded-2xl p-4 space-y-3">
+                    <div className="flex items-center justify-between text-[10px] font-bold uppercase tracking-wider text-stone-500">
+                      <span>CURRENT HEADER LOGO ASSET</span>
+                      {formSettings.headerLogoUrl ? (
+                        <span className="text-emerald-700 bg-emerald-100 px-2 py-0.5 rounded-md font-extrabold flex items-center space-x-1">
+                          <Check className="w-3 h-3" />
+                          <span>IMAGE ASSET ACTIVE</span>
+                        </span>
+                      ) : (
+                        <span className="text-stone-600 bg-stone-200/70 px-2 py-0.5 rounded-md font-semibold">
+                          USING TEXT BRAND NAME
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Visual Asset Canvas Display */}
+                    <div className="p-5 bg-white border border-stone-200 rounded-xl flex items-center justify-center min-h-[95px] relative overflow-hidden shadow-2xs">
+                      {formSettings.headerLogoUrl ? (
+                        <img
+                          src={formSettings.headerLogoUrl}
+                          alt="Header Logo Asset"
+                          className="max-h-[75px] max-w-full object-contain filter contrast-125"
+                        />
+                      ) : (
+                        <span className="font-sans font-black text-2xl tracking-[0.2em] text-stone-900 uppercase">
+                          {formSettings.storeName || 'JUTU'}
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Action Controls for Logo */}
+                    {formSettings.headerLogoUrl && (
+                      <div className="flex flex-wrap items-center justify-between gap-2 pt-1">
+                        <div className="flex items-center space-x-2">
+                          <button
+                            type="button"
+                            onClick={() => logoFileInputRef.current?.click()}
+                            className="text-[11px] font-bold uppercase text-stone-700 hover:text-stone-950 bg-stone-100 hover:bg-stone-200 px-3 py-1.5 rounded-xl transition-colors cursor-pointer flex items-center space-x-1.5"
+                          >
+                            <RefreshCw className="w-3.5 h-3.5" />
+                            <span>Change Logo</span>
+                          </button>
+                          <button
+                            type="button"
+                            onClick={handleRemoveLogo}
+                            disabled={isSavingLogo}
+                            className="text-[11px] font-bold uppercase text-rose-600 hover:text-rose-700 bg-rose-50 hover:bg-rose-100 px-3 py-1.5 rounded-xl transition-colors cursor-pointer flex items-center space-x-1.5"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                            <span>Remove Logo</span>
+                          </button>
+                        </div>
+
+                        <button
+                          type="button"
+                          onClick={handleDirectSaveLogo}
+                          disabled={isSavingLogo}
+                          className="text-[11px] font-bold uppercase text-white bg-stone-950 hover:bg-black px-4 py-1.5 rounded-xl shadow-xs transition-colors cursor-pointer flex items-center space-x-1.5"
+                        >
+                          {isSavingLogo ? (
+                            <>
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                              <span>Saving...</span>
+                            </>
+                          ) : (
+                            <>
+                              <Check className="w-3.5 h-3.5 text-emerald-400" />
+                              <span>Save Logo to Store</span>
+                            </>
+                          )}
+                        </button>
+                      </div>
                     )}
+
+                    <p className="text-[10px] text-stone-500 font-medium">
+                      Upload a transparent PNG, SVG, or WebP logo file. The logo will automatically scale cleanly across both PC and mobile headers.
+                    </p>
                   </div>
-                  <p className="text-[10px] text-stone-500 font-medium">
-                    Upload a transparent PNG, SVG, or WebP image, or provide a direct image link.
-                  </p>
                 </div>
 
                 {/* Dimension Sliders Grid */}
