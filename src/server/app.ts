@@ -33,6 +33,12 @@ import {
   dbGetSetting,
   dbSaveSetting,
 } from './dbStore';
+import {
+  sendTelegramOrderNotification,
+  sendTelegramContactNotification,
+  testTelegramNotification,
+  getTelegramBotInfo,
+} from './telegram';
 
 dotenv.config();
 
@@ -624,7 +630,27 @@ const handleCreateOrder = async (req: Request, res: Response) => {
         { $set: mongoPayload },
         { upsert: true, new: true, setDefaultsOnInsert: true }
       );
+      // 3. Dispatch Telegram alert in background (non-blocking)
+      try {
+        const storeSettings = dbGetSetting('store') || {};
+        sendTelegramOrderNotification(payload, storeSettings).catch((tErr) => {
+          console.warn('⚠️ [Telegram Order Dispatch Warning]', tErr?.message);
+        });
+      } catch (telegramErr: any) {
+        console.warn('⚠️ [Telegram Dispatch Catch]', telegramErr?.message);
+      }
+
       return res.status(201).json({ success: true, source: 'mongodb_and_persistent_file', data: created });
+    }
+
+    // 3. Dispatch Telegram alert in background (non-blocking)
+    try {
+      const storeSettings = dbGetSetting('store') || {};
+      sendTelegramOrderNotification(payload, storeSettings).catch((tErr) => {
+        console.warn('⚠️ [Telegram Order Dispatch Warning]', tErr?.message);
+      });
+    } catch (telegramErr: any) {
+      console.warn('⚠️ [Telegram Dispatch Catch]', telegramErr?.message);
     }
 
     return res.status(201).json({ success: true, source: 'persistent_file_database', data: savedLocal || payload });
@@ -945,6 +971,16 @@ router.post('/messages', async (req: Request, res: Response) => {
       console.warn('⚠️ [Local Message Save Warning]', localErr.message);
     }
 
+    // Dispatch Telegram alert for contact inquiries
+    try {
+      const storeSettings = dbGetSetting('store') || {};
+      sendTelegramContactNotification(msgData, storeSettings).catch((tErr) => {
+        console.warn('⚠️ [Telegram Contact Dispatch Warning]', tErr?.message);
+      });
+    } catch (telegramErr: any) {
+      console.warn('⚠️ [Telegram Contact Catch]', telegramErr?.message);
+    }
+
     await connectToDatabase();
     if (isDbConnected()) {
       const cleanMsg = cleanMongoPayload(msgData);
@@ -1091,6 +1127,51 @@ router.post('/settings/:key', async (req: Request, res: Response) => {
     return res.json({ success: true, source: 'persistent_file_database', data: value });
   } catch (err: any) {
     return res.status(500).json({ error: err.message });
+  }
+});
+
+// ----------------------------------------------------
+// Telegram Gateway Verification & Test Endpoints
+// ----------------------------------------------------
+router.post('/telegram/verify', async (req: Request, res: Response) => {
+  try {
+    const storeSettings = dbGetSetting('store') || {};
+    const botToken = (req.body?.botToken || storeSettings.telegramBotToken || '').trim();
+
+    if (!botToken) {
+      return res.status(400).json({ success: false, error: 'Telegram Bot Token is required.' });
+    }
+
+    const verifyRes = await getTelegramBotInfo(botToken);
+    return res.json(verifyRes);
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
+  }
+});
+
+router.post('/telegram/test', async (req: Request, res: Response) => {
+  try {
+    const storeSettings = dbGetSetting('store') || {};
+    const botToken = (req.body?.botToken || storeSettings.telegramBotToken || '').trim();
+    const chatId = (req.body?.chatId || storeSettings.telegramChatId || '').trim();
+
+    if (!botToken) {
+      return res.status(400).json({
+        success: false,
+        error: 'Telegram Bot Token is missing. Please enter your bot token from @BotFather.',
+      });
+    }
+    if (!chatId) {
+      return res.status(400).json({
+        success: false,
+        error: 'Telegram Chat ID / Channel ID is missing. Please enter target Chat ID.',
+      });
+    }
+
+    const testRes = await testTelegramNotification(botToken, chatId);
+    return res.json(testRes);
+  } catch (err: any) {
+    return res.status(500).json({ success: false, error: err.message });
   }
 });
 
