@@ -98,6 +98,17 @@ export const AdminSettingsView: React.FC<AdminSettingsViewProps> = ({
   const [isDraggingLogo, setIsDraggingLogo] = useState(false);
   const [logoImageError, setLogoImageError] = useState(false);
 
+  // Telegram states
+  const [isTestingTelegram, setIsTestingTelegram] = useState(false);
+  const [isVerifyingTelegram, setIsVerifyingTelegram] = useState(false);
+  const [verifiedBot, setVerifiedBot] = useState<{ username?: string; first_name: string } | null>(null);
+  const [telegramNotice, setTelegramNotice] = useState<{
+    type: 'success' | 'error' | 'info';
+    title?: string;
+    message: string;
+    botInfo?: any;
+  } | null>(null);
+
   useEffect(() => {
     setLogoImageError(false);
   }, [formSettings.headerLogoUrl]);
@@ -407,12 +418,128 @@ export const AdminSettingsView: React.FC<AdminSettingsViewProps> = ({
     updateSetting('deliveryOptions', updated);
   };
 
-  const handleTestTelegram = () => {
-    setTestActionStatus('Sending test payload to Telegram Bot...');
-    setTimeout(() => {
-      setTestActionStatus('✅ Success! Test alert dispatched to Telegram Chat ID: ' + (formSettings.telegramChatId || 'Not configured'));
-      setTimeout(() => setTestActionStatus(null), 4000);
-    }, 900);
+  const handleVerifyBotToken = async () => {
+    const token = formSettings.telegramBotToken?.trim();
+    if (!token) {
+      setTelegramNotice({
+        type: 'error',
+        title: 'Empty Bot Token',
+        message: 'Please paste your Telegram Bot Token from @BotFather first.',
+      });
+      return;
+    }
+
+    setIsVerifyingTelegram(true);
+    setTelegramNotice(null);
+
+    try {
+      const res = await fetch('/api/telegram/verify', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ botToken: token }),
+      });
+
+      const data = await res.json();
+      if (res.ok && data.success && data.bot) {
+        setVerifiedBot(data.bot);
+        setTelegramNotice({
+          type: 'success',
+          title: 'Bot Token Verified!',
+          message: `Connected to @${data.bot.username || data.bot.first_name} (${data.bot.first_name}). Token is active and recognized by Telegram.`,
+          botInfo: data.bot,
+        });
+      } else {
+        setVerifiedBot(null);
+        setTelegramNotice({
+          type: 'error',
+          title: data.code === 401 ? 'Invalid Token (401 Unauthorized)' : 'Verification Failed',
+          message: data.error || 'Telegram rejected this bot token.',
+        });
+      }
+    } catch (err: any) {
+      setTelegramNotice({
+        type: 'error',
+        title: 'Network Error',
+        message: err.message || 'Failed to verify bot token.',
+      });
+    } finally {
+      setIsVerifyingTelegram(false);
+    }
+  };
+
+  const handleTestTelegram = async () => {
+    const token = formSettings.telegramBotToken?.trim();
+    const chatId = formSettings.telegramChatId?.trim();
+
+    if (!token) {
+      setTelegramNotice({
+        type: 'error',
+        title: 'Missing Bot Token',
+        message: 'Please enter your Telegram Bot Token obtained from @BotFather.',
+      });
+      return;
+    }
+
+    if (!chatId) {
+      setTelegramNotice({
+        type: 'error',
+        title: 'Missing Chat ID',
+        message: 'Please enter your numeric Telegram Chat ID (e.g. from @userinfobot) or Channel ID.',
+      });
+      return;
+    }
+
+    setIsTestingTelegram(true);
+    setTelegramNotice({
+      type: 'info',
+      title: 'Testing Telegram Dispatch...',
+      message: 'Connecting to Telegram servers and sending test notification payload...',
+    });
+
+    try {
+      // 1. First save current settings so backend disk/db has the latest token and chatId
+      if (onSaveSettings) {
+        await onSaveSettings(formSettings);
+      }
+
+      // 2. Call real backend test route
+      const res = await fetch('/api/telegram/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          botToken: token,
+          chatId: chatId,
+        }),
+      });
+
+      const data = await res.json();
+
+      if (res.ok && data.success) {
+        if (data.bot) setVerifiedBot(data.bot);
+        setTelegramNotice({
+          type: 'success',
+          title: 'Test Alert Delivered Successfully! 🚀',
+          message: `A live notification was sent to your Telegram chat. Check your Telegram app to see the notification! (Bot: @${data.bot?.username || data.bot?.first_name || 'Bot'})`,
+          botInfo: data.bot,
+        });
+      } else {
+        if (data.bot) setVerifiedBot(data.bot);
+        setTelegramNotice({
+          type: 'error',
+          title: data.code === 401 ? 'Bot Token Unauthorized (401)' : 'Telegram Delivery Failed',
+          message: data.error || 'Failed to dispatch Telegram message.',
+          botInfo: data.bot,
+        });
+      }
+    } catch (err: any) {
+      setTelegramNotice({
+        type: 'error',
+        title: 'Connection Error',
+        message: err.message || 'Could not contact server to dispatch Telegram test.',
+      });
+    } finally {
+      setIsTestingTelegram(false);
+    }
   };
 
   const handleTestSMTP = () => {
@@ -1292,11 +1419,22 @@ export const AdminSettingsView: React.FC<AdminSettingsViewProps> = ({
                 {/* Master Switch */}
                 <div className="bg-stone-50 border border-stone-200 rounded-2xl p-4 sm:p-5 flex items-center justify-between">
                   <div>
-                    <span className="text-xs font-bold uppercase text-stone-900 block">
-                      Telegram Dispatch Gateway
-                    </span>
+                    <div className="flex items-center space-x-2">
+                      <span className="text-xs font-bold uppercase text-stone-900 block">
+                        Telegram Dispatch Gateway
+                      </span>
+                      {formSettings.telegramEnabled ? (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-bold bg-emerald-100 text-emerald-800">
+                          ACTIVE
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center px-2 py-0.5 rounded-full text-[9px] font-bold bg-stone-200 text-stone-600">
+                          DISABLED
+                        </span>
+                      )}
+                    </div>
                     <span className="text-[11px] text-stone-500">
-                      Forward order notifications and alerts instantly to your Telegram group or private chat.
+                      Forward customer order notifications and critical store alerts instantly to your Telegram chat or group.
                     </span>
                   </div>
                   <label className="relative inline-flex items-center cursor-pointer">
@@ -1310,21 +1448,90 @@ export const AdminSettingsView: React.FC<AdminSettingsViewProps> = ({
                   </label>
                 </div>
 
+                {/* Status / Feedback Banner */}
+                {telegramNotice && (
+                  <div
+                    className={`p-4 rounded-2xl border text-xs animate-fadeIn ${
+                      telegramNotice.type === 'success'
+                        ? 'bg-emerald-50 border-emerald-200 text-emerald-900'
+                        : telegramNotice.type === 'error'
+                        ? 'bg-rose-50 border-rose-200 text-rose-950'
+                        : 'bg-stone-100 border-stone-300 text-stone-900'
+                    }`}
+                  >
+                    <div className="flex items-start space-x-3">
+                      {telegramNotice.type === 'success' ? (
+                        <CheckCircle2 className="w-5 h-5 text-emerald-600 shrink-0 mt-0.5" />
+                      ) : telegramNotice.type === 'error' ? (
+                        <AlertCircle className="w-5 h-5 text-rose-600 shrink-0 mt-0.5" />
+                      ) : (
+                        <Loader2 className="w-5 h-5 text-stone-700 shrink-0 animate-spin mt-0.5" />
+                      )}
+                      <div className="flex-1">
+                        {telegramNotice.title && (
+                          <div className="font-bold uppercase tracking-wider text-xs mb-1">
+                            {telegramNotice.title}
+                          </div>
+                        )}
+                        <p className="leading-relaxed">{telegramNotice.message}</p>
+                        {telegramNotice.botInfo && (
+                          <div className="mt-2 pt-2 border-t border-emerald-200/50 flex items-center space-x-3 text-[11px] font-mono">
+                            <span>Bot: <b>@{telegramNotice.botInfo.username || telegramNotice.botInfo.first_name}</b></span>
+                            <span>ID: <code>{telegramNotice.botInfo.id}</code></span>
+                          </div>
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setTelegramNotice(null)}
+                        className="text-stone-400 hover:text-stone-700 p-1"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                  </div>
+                )}
+
                 {/* Credentials */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label className="text-[10px] font-bold uppercase tracking-wider text-stone-600 block mb-1">
-                      Telegram Bot Token
-                    </label>
-                    <input
-                      type="text"
-                      value={formSettings.telegramBotToken}
-                      onChange={(e) => updateSetting('telegramBotToken', e.target.value)}
-                      placeholder="e.g. 7482910482:AAHp9Q8L9dK1L..."
-                      className="w-full bg-stone-50 border border-stone-300 text-stone-900 text-xs font-mono rounded-xl p-2.5"
-                    />
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-[10px] font-bold uppercase tracking-wider text-stone-600 block">
+                        Telegram Bot Token
+                      </label>
+                      {verifiedBot && (
+                        <span className="text-[10px] font-bold text-emerald-600 flex items-center space-x-1">
+                          <Check className="w-3 h-3" />
+                          <span>@{verifiedBot.username || verifiedBot.first_name}</span>
+                        </span>
+                      )}
+                    </div>
+                    <div className="relative">
+                      <input
+                        type="text"
+                        value={formSettings.telegramBotToken}
+                        onChange={(e) => {
+                          updateSetting('telegramBotToken', e.target.value);
+                          setVerifiedBot(null);
+                        }}
+                        placeholder="e.g. 7482910482:AAHp9Q8L9dK1L..."
+                        className="w-full bg-stone-50 border border-stone-300 text-stone-900 text-xs font-mono rounded-xl p-2.5 pr-20 focus:outline-none focus:border-stone-800"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleVerifyBotToken}
+                        disabled={isVerifyingTelegram || !formSettings.telegramBotToken?.trim()}
+                        className="absolute right-1.5 top-1/2 -translate-y-1/2 px-2.5 py-1 bg-stone-200 hover:bg-stone-300 disabled:opacity-50 text-[10px] font-bold uppercase rounded-lg text-stone-800 transition-colors cursor-pointer flex items-center space-x-1"
+                      >
+                        {isVerifyingTelegram ? (
+                          <Loader2 className="w-3 h-3 animate-spin" />
+                        ) : (
+                          <span>Verify</span>
+                        )}
+                      </button>
+                    </div>
                     <span className="text-[9px] text-stone-400 block mt-1">
-                      Obtain from @BotFather on Telegram
+                      Obtain from @BotFather on Telegram (e.g. 123456789:ABCdef...)
                     </span>
                   </div>
 
@@ -1336,11 +1543,11 @@ export const AdminSettingsView: React.FC<AdminSettingsViewProps> = ({
                       type="text"
                       value={formSettings.telegramChatId}
                       onChange={(e) => updateSetting('telegramChatId', e.target.value)}
-                      placeholder="e.g. -1001984729184 or @jutu_alerts"
-                      className="w-full bg-stone-50 border border-stone-300 text-stone-900 text-xs font-mono rounded-xl p-2.5"
+                      placeholder="e.g. 1955363878 or -1001984729184"
+                      className="w-full bg-stone-50 border border-stone-300 text-stone-900 text-xs font-mono rounded-xl p-2.5 focus:outline-none focus:border-stone-800"
                     />
                     <span className="text-[9px] text-stone-400 block mt-1">
-                      Target group, channel, or personal chat ID
+                      Your numeric user Chat ID (from @userinfobot) or group/channel ID
                     </span>
                   </div>
                 </div>
@@ -1351,8 +1558,8 @@ export const AdminSettingsView: React.FC<AdminSettingsViewProps> = ({
                     Active Alert Triggers
                   </span>
 
-                  <label className="flex items-center justify-between p-2.5 bg-white border border-stone-200 rounded-xl cursor-pointer">
-                    <span className="text-xs font-bold text-stone-800">📦 New Order Placed (Instant Order Notification)</span>
+                  <label className="flex items-center justify-between p-2.5 bg-white border border-stone-200 rounded-xl cursor-pointer hover:border-stone-300 transition-colors">
+                    <span className="text-xs font-bold text-stone-800">📦 New Order Placed (Instant Order Notification with items & total)</span>
                     <input
                       type="checkbox"
                       checked={formSettings.telegramNotifyNewOrder}
@@ -1361,7 +1568,7 @@ export const AdminSettingsView: React.FC<AdminSettingsViewProps> = ({
                     />
                   </label>
 
-                  <label className="flex items-center justify-between p-2.5 bg-white border border-stone-200 rounded-xl cursor-pointer">
+                  <label className="flex items-center justify-between p-2.5 bg-white border border-stone-200 rounded-xl cursor-pointer hover:border-stone-300 transition-colors">
                     <span className="text-xs font-bold text-stone-800">⚠️ Low Stock Warning (Inventory &lt; 3 pairs)</span>
                     <input
                       type="checkbox"
@@ -1371,7 +1578,7 @@ export const AdminSettingsView: React.FC<AdminSettingsViewProps> = ({
                     />
                   </label>
 
-                  <label className="flex items-center justify-between p-2.5 bg-white border border-stone-200 rounded-xl cursor-pointer">
+                  <label className="flex items-center justify-between p-2.5 bg-white border border-stone-200 rounded-xl cursor-pointer hover:border-stone-300 transition-colors">
                     <span className="text-xs font-bold text-stone-800">💬 Customer Inquiry Received from Contact Page</span>
                     <input
                       type="checkbox"
@@ -1382,16 +1589,49 @@ export const AdminSettingsView: React.FC<AdminSettingsViewProps> = ({
                   </label>
                 </div>
 
+                {/* Setup Instructions Helper Box */}
+                <div className="bg-amber-50/60 border border-amber-200/80 rounded-2xl p-4 text-xs text-stone-700 space-y-2">
+                  <div className="flex items-center space-x-2 font-bold uppercase tracking-wider text-stone-900 text-[11px]">
+                    <Zap className="w-3.5 h-3.5 text-amber-600" />
+                    <span>How to connect your Telegram Bot (বট চালু করার নিয়ম):</span>
+                  </div>
+                  <ol className="list-decimal list-inside space-y-1 text-[11px] text-stone-600 leading-relaxed">
+                    <li>
+                      Telegram-এ <b>@BotFather</b> লিখে সার্চ করুন এবং <code>/newbot</code> কমান্ড দিয়ে একটি বট বানিয়ে <b>API Token</b> কপি করুন।
+                    </li>
+                    <li className="font-semibold text-stone-800">
+                      <b>জরুরি ধাপ (Start Bot):</b> আপনার নতুন তৈরি করা বটে Telegram-এ যান এবং <b>START</b> বা <code>/start</code> বাটনে চাপ দিন। (বটে /start না দিলে টেলিগ্রাম থেকে মেসেজ পাঠানো যায় না)।
+                    </li>
+                    <li>
+                      আপনার Chat ID পেতে টেলিগ্রামে <b>@userinfobot</b> বা <b>@raw_data_bot</b>-এ যেকোনো মেসেজ দিন এবং প্রাপ্ত <code>Id</code> টি উপরে <b>Telegram Chat ID</b> ঘরে পেস্ট করুন।
+                    </li>
+                    <li>
+                      নিচের <b>SEND TEST TELEGRAM MESSAGE</b> বাটনে চাপ দিয়ে সরাসরি টেস্ট নোটিফিকেশন চেক করুন।
+                    </li>
+                  </ol>
+                </div>
+
                 {/* Test Action */}
-                <div className="pt-2">
+                <div className="pt-2 flex flex-wrap items-center gap-3">
                   <button
                     type="button"
                     onClick={handleTestTelegram}
-                    className="bg-stone-900 hover:bg-black text-white text-xs font-bold uppercase px-5 py-2.5 rounded-xl transition-colors cursor-pointer flex items-center space-x-2"
+                    disabled={isTestingTelegram}
+                    className="bg-stone-900 hover:bg-black disabled:opacity-50 text-white text-xs font-bold uppercase px-5 py-2.5 rounded-xl transition-colors cursor-pointer flex items-center space-x-2"
                   >
-                    <Send className="w-4 h-4" />
-                    <span>SEND TEST TELEGRAM MESSAGE</span>
+                    {isTestingTelegram ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Send className="w-4 h-4" />
+                    )}
+                    <span>{isTestingTelegram ? 'DISPATCHING TEST MESSAGE...' : 'SEND TEST TELEGRAM MESSAGE'}</span>
                   </button>
+
+                  {formSettings.telegramBotToken && formSettings.telegramChatId && (
+                    <span className="text-[11px] text-stone-500 font-mono">
+                      Target: Chat #{formSettings.telegramChatId}
+                    </span>
+                  )}
                 </div>
               </div>
             )}
